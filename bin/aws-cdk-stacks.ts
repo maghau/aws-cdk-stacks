@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import cdk = require('@aws-cdk/core');
-import { AwsCdkStacksStack } from '../lib/aws-cdk-stacks-stack';
+
+import { MultiTenantStack } from '../lib/stacks/multi-tenant-stack';
 
 const app = new cdk.App();
-new AwsCdkStacksStack(app, 'AwsCdkStacksStack');
+
+const multiTenantStack = new MultiTenantStack(app, 'multi-tenant-stack');
