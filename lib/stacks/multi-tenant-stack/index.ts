@@ -8,9 +8,20 @@ import {
     UserPoolClient,
     CfnUserPool,
 } from '@aws-cdk/aws-cognito';
-import { LayerVersion } from '@aws-cdk/aws-lambda';
+import {
+    Function,
+    LayerVersion,
+    Runtime,
+    Code,
+    AssetCode,
+} from '@aws-cdk/aws-lambda';
 import { Vpc, SubnetType, SecurityGroup } from '@aws-cdk/aws-ec2';
-import { Table, BillingMode, AttributeType } from '@aws-cdk/aws-dynamodb';
+import {
+    Table,
+    BillingMode,
+    AttributeType,
+    StreamViewType,
+} from '@aws-cdk/aws-dynamodb';
 import {
     Role,
     ServicePrincipal,
@@ -23,6 +34,7 @@ import { StateMachine } from '@aws-cdk/aws-stepfunctions';
 import { CfnDomain } from '@aws-cdk/aws-elasticsearch';
 import { PhysicalName } from '@aws-cdk/core';
 import { EbsDeviceVolumeType } from '@aws-cdk/aws-autoscaling';
+import path = require('path');
 
 export class MultiTenantStack extends cdk.Stack {
     /*
@@ -183,5 +195,66 @@ export class MultiTenantStack extends cdk.Stack {
          * ######### DYNAMODB
          * ##########################################################
          */
+
+        const tenantTable = new Table(this, 'Tenants', {
+            partitionKey: {
+                name: 'TenantId',
+                type: AttributeType.STRING,
+            },
+            sortKey: {
+                name: 'DataType',
+                type: AttributeType.STRING,
+            },
+            billingMode: BillingMode.PAY_PER_REQUEST,
+            serverSideEncryption: true,
+            stream: StreamViewType.NEW_IMAGE,
+        });
+
+        /* ##########################################################
+         * ######### LAMBDA
+         * ##########################################################
+         */
+
+        // Lambda layers
+
+        var dirName = path.join(
+            __dirname,
+            './lambda/layers/common-npm-modules/'
+        );
+
+        // console.log('DIRNAME: ', dirName);
+
+        let commonNpmModulesLayer = new LayerVersion(
+            this,
+            'common-npm-modules',
+            {
+                code: new AssetCode(dirName),
+                compatibleRuntimes: [Runtime.NODEJS_8_10, Runtime.NODEJS_10_X],
+            }
+        );
+
+        // Tenant System Admin Role
+        const tenantAdminSystemRole = new Role(
+            this,
+            'TenantSystemDynamoDbReadWriter',
+            {
+                assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+            }
+        );
+
+        tenantTable.grantReadWriteData(tenantAdminSystemRole);
+
+        const createTenantLambda = new Function(this, 'CreateTenant', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/createTenant')
+            ),
+            environment: {
+                tableName: tenantTable.tableName,
+            },
+            role: tenantAdminSystemRole,
+            // layers: [commonNpmModulesLayer],
+        });
     }
 }

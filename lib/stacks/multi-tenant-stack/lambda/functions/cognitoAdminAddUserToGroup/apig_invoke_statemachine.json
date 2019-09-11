@@ -1,0 +1,19 @@
+{
+    "input": {
+        "name": "Trig A/S",
+        "address": "",
+        "postCode": "",
+        "city": "",
+        "region": "",
+        "country": "",
+        "phoneNumber": "+4796623946",
+        "parentTenantId": "",
+        "adminDetails": {
+            "name": "Magnus Haugaasen",
+            "email": "magnus@trig.no",
+            "phoneNumber": "+4796623946"
+        }
+    },
+    "name": "Execution1",
+    "stateMachineArn": "arn:aws:states:eu-west-1:060732430353:stateMachine:stepfunctionsTenantOnboardingStateMachine2198C233-jme6TG2WOwyF"
+}
