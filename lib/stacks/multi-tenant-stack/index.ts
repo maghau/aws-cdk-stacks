@@ -9,7 +9,7 @@ import {
     CfnUserPool,
 } from '@aws-cdk/aws-cognito';
 import { LayerVersion } from '@aws-cdk/aws-lambda';
-import { Vpc } from '@aws-cdk/aws-ec2';
+import { Vpc, SubnetType, SecurityGroup } from '@aws-cdk/aws-ec2';
 import { Table, BillingMode, AttributeType } from '@aws-cdk/aws-dynamodb';
 import {
     Role,
@@ -22,6 +22,7 @@ import { RestApi } from '@aws-cdk/aws-apigateway';
 import { StateMachine } from '@aws-cdk/aws-stepfunctions';
 import { CfnDomain } from '@aws-cdk/aws-elasticsearch';
 import { PhysicalName } from '@aws-cdk/core';
+import { EbsDeviceVolumeType } from '@aws-cdk/aws-autoscaling';
 
 export class MultiTenantStack extends cdk.Stack {
     /*
@@ -61,11 +62,40 @@ export class MultiTenantStack extends cdk.Stack {
         super(scope, id, props);
 
         /* ##########################################################
+         * ######### VPC
+         * ##########################################################
+         */
+
+        const vpc = new Vpc(this, 'saas-demo-vpc', {
+            cidr: '10.0.0.0/16',
+            maxAzs: 2,
+            subnetConfiguration: [
+                {
+                    cidrMask: 24,
+                    name: 'public',
+                    subnetType: SubnetType.PUBLIC,
+                },
+                {
+                    cidrMask: 28,
+                    name: 'elasticache',
+                    subnetType: SubnetType.ISOLATED,
+                },
+            ],
+        });
+
+        /* ##########################################################
          * ######### COGNITO
          * ##########################################################
          */
         const userPool = new UserPool(this, 'TenantUserPool', {
             signInType: SignInType.EMAIL,
+        });
+
+        // User Pool Groups
+
+        const sysAdminsGroup = new CfnUserPoolGroup(this, 'SysAdmins', {
+            userPoolId: userPool.userPoolId,
+            groupName: 'SysAdmins',
         });
 
         // Allow Cognito to publish SMS messages
@@ -111,5 +141,47 @@ export class MultiTenantStack extends cdk.Stack {
                 },
             ],
         });
+
+        /* ##########################################################
+         * ######### ELASTICSEARCH
+         * ##########################################################
+         */
+
+        // Place Elasticsearch domain in a Security Group
+        let securityGroupName = 'elasticsearch-sg';
+        const elasticSeachSecurityGroup = new SecurityGroup(
+            this,
+            securityGroupName,
+            {
+                securityGroupName,
+                vpc: vpc,
+            }
+        );
+
+        let elasticsearchDomain = new CfnDomain(this, 'saas-demo-domain', {
+            domainName: 'saas-demo-domain',
+            elasticsearchVersion: '7.1',
+            elasticsearchClusterConfig: {
+                instanceType: 't2.small.elasticsearch',
+                instanceCount: 1,
+            },
+            // encryptionAtRestOptions: { //< -- Encryption at rest is not supported for t2.small instances
+            //     enabled: true,
+            // },
+            ebsOptions: {
+                ebsEnabled: true,
+                volumeType: EbsDeviceVolumeType.GP2,
+                volumeSize: 10,
+            },
+            vpcOptions: {
+                securityGroupIds: [elasticSeachSecurityGroup.securityGroupId],
+                subnetIds: [vpc.isolatedSubnets[0].subnetId],
+            },
+        });
+
+        /* ##########################################################
+         * ######### DYNAMODB
+         * ##########################################################
+         */
     }
 }
