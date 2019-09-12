@@ -1,0 +1,1 @@
+{"statusCode":500,"body":{"message":"An account with the given email already exists.","code":"UsernameExistsException","time":"2019-07-10T12:23:48.333Z","requestId":"de1f0ced-66fb-4940-a4e8-7256c36806c0","statusCode":400,"retryable":false,"retryDelay":8.755143221583705}}

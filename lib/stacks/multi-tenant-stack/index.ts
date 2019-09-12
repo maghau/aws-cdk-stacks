@@ -254,7 +254,94 @@ export class MultiTenantStack extends cdk.Stack {
                 tableName: tenantTable.tableName,
             },
             role: tenantAdminSystemRole,
-            // layers: [commonNpmModulesLayer],
+            layers: [commonNpmModulesLayer],
+        });
+
+        // ****** COGNITO LAMBDA FUNCTIONS
+
+        const cognitoAdminServiceRole = new Role(
+            this,
+            'CognitoAdminServiceRole',
+            {
+                assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+            }
+        );
+
+        const cognitoAdminPolicy = new ManagedPolicy(
+            this,
+            'CognitoAdminPolicy',
+            {
+                statements: [
+                    new PolicyStatement({
+                        effect: Effect.ALLOW,
+                        resources: [userPool.userPoolArn],
+                        actions: [
+                            'cognito-idp:AdminCreateUser',
+                            'cognito-idp:AdminDeleteUser',
+                            'cognito-idp:AdminGetUser',
+                            'cognito-idp:AdminAddUserToGroup',
+                        ],
+                        //TODO: Consider adding a condition to allow only users in a 'SysAdmins' group access
+                    }),
+                ],
+            }
+        );
+
+        cognitoAdminPolicy.attachToRole(cognitoAdminServiceRole);
+
+        const addUserToGroup = new Function(this, 'CognitoAddUserToGroup', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoAddUserToGroup')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
+        });
+
+        const checkIfUserExists = new Function(
+            this,
+            'CognitoCheckIfUserExists',
+            {
+                runtime: Runtime.NODEJS_10_X,
+                handler: 'index.handler',
+                code: Code.asset(
+                    path.join(
+                        __dirname,
+                        './lambda/functions/cognitoCheckIfUserExists'
+                    )
+                ),
+                environment: {
+                    cognitoUserPoolId: userPool.userPoolId,
+                },
+                role: cognitoAdminServiceRole,
+            }
+        );
+
+        const cognitoCreateUser = new Function(this, 'CognitoCreateUser', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoCreateUser')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
+        });
+
+        const cognitoDeleteUser = new Function(this, 'CognitoDeleteUser', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoDeleteUser')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
         });
     }
 }
