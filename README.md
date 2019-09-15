@@ -16,15 +16,15 @@ Constructs that can be re-used across stacks go here.
 
 # Useful commands
 
-- `npm run build` compile typescript to js
-- `npm run watch` watch for changes and compile
-- `cdk deploy` deploy this stack to your default AWS account/region
-- `cdk diff` compare deployed stack with current state
-- `cdk synth` emits the synthesized CloudFormation template
+-   `npm run build` compile typescript to js
+-   `npm run watch` watch for changes and compile
+-   `cdk deploy` deploy this stack to your default AWS account/region
+-   `cdk diff` compare deployed stack with current state
+-   `cdk synth` emits the synthesized CloudFormation template
 
 # statemachine template (tenant onboarding)
 
-`{"StartAt":"CreateTenantRecord","States":{"CreateTenantRecord":{"Next":"CreateTenantAdmin","Type":"Task","Resource":"arn:aws:lambda:eu-west-1:060732430353:function:saas-identity-lambdaCreateTenant25B2CAF7-FRI6SUENZF0","ResultPath":"$.createTenantResult"},"CreateTenantAdmin":{"Next":"AddUserToCognitoGroup","InputPath":"$.adminDetails","OutputPath":"$.result","Type":"Task","Resource":"arn:aws:lambda:eu-west-1:060732430353:function:saas-identity-lambdaAdminCreateUser7559401F-1RV6N5M36GP8S","ResultPath":"$.result.createAdminUserResult"},"AddUserToCognitoGroup":{"End":true,"Type":"Task","Resource":"arn:aws:lambda:eu-west-1:060732430353:function:saas-identity-lambdaAdminAddUserToGroup9E0B8381-3BPGVHNXBODB"}},"TimeoutSeconds":60}`
+`{ "StartAt": "CreateTenantStep", "States": { "CreateTenantStep": { "Next": "CreateTenantAdminStep", "Type": "Task", "Resource": "arn:aws:lambda:eu-west-1:060732430353:function:multi-tenant-stack-CreateTenant12B55F2C-1W456UWPH4JCM", "ResultPath": "$.createTenantResult" }, "CreateTenantAdminStep": { "Next": "AddUserToCognitoGroupStep", "InputPath": "$.adminDetails", "Type": "Task", "Resource": "arn:aws:lambda:eu-west-1:060732430353:function:multi-tenant-stack-CognitoCreateUser33B05316-1IOCDK3GROY0Q", "ResultPath": "$.createAdminUserResult" }, "AddUserToCognitoGroupStep": { "End": true, "Type": "Task", "Resource": "arn:aws:lambda:eu-west-1:060732430353:function:multi-tenant-stack-CognitoAddUserToGroupBE4EA189-1P9Q85IOVHUXK", "Parameters": { "username.$": "$.createAdminUserResult.body.User.Username", "groupName": "TenantAdmins"}, "ResultPath": "$.addUserToGroupResult" } }, "TimeoutSeconds": 60 }`
 
 Test input:
 `{ "name": "XTS", "address": "", "postCode": "", "city": "", "region": "", "country": "", "phoneNumber": "+4796623946", "parentTenantId": "", "adminDetails": { "name": "Magnus Haugaasen", "email": "magnus.haugaasen@gmail.com", "phoneNumber": "+4796623946" } }`

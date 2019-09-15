@@ -5,3 +5,10 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+
+# Make ignore exception for js files in lambda subfolders
+!**/lambda/**/*.js
+
+# ..but exlude cdk compiled js files from layers
+**/lambda/layers/**/*.js
