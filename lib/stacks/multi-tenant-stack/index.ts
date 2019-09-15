@@ -277,7 +277,7 @@ export class MultiTenantStack extends Stack {
             }
         );
 
-        const dynamoDbEsStreamerPolicy = new Policy(
+        const dynamoDbEsStreamerPolicy = new ManagedPolicy(
             this,
             'DynamoDbEsStreamerPolicy',
             {
@@ -294,12 +294,24 @@ export class MultiTenantStack extends Stack {
                             'logs:CreateLogGroup',
                             'logs:CreateLogStream',
                             'logs:PutLogEvents',
+                            'ec2:CreateNetworkInterface',
+                            'ec2:DescribeNetworkInterfaces',
+                            'ec2:DeleteNetworkInterface',
                         ],
                         resources: ['*'],
                     }),
                 ],
             }
         );
+
+        dynamoDbEsStreamerPolicy.attachToRole(dynamoDbEsStreamerServiceRole);
+        // Make sure the service role for Lambda has access to VPC
+        dynamoDbEsStreamerServiceRole.addManagedPolicy(
+            ManagedPolicy.fromAwsManagedPolicyName(
+                'AWSLambdaVPCAccessExecutionRole'
+            )
+        );
+
         if (elasticsearchDomain.domainName) {
             const addTenantToESIndex = new Function(
                 this,
