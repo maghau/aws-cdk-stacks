@@ -238,6 +238,7 @@ export class MultiTenantStack extends Stack {
 
         tenantTable.grantReadData(tenantReaderSystemRole);
 
+        /** Creates a new tenant record in DynamoDB */
         const createTenant = new Function(this, 'CreateTenant', {
             runtime: Runtime.NODEJS_10_X,
             handler: 'index.handler',
@@ -251,6 +252,7 @@ export class MultiTenantStack extends Stack {
             layers: [commonNpmModulesLayer],
         });
 
+        /** Gets a tenant by ID (hash key in DynamoDB table) */
         const getTenantById = new Function(this, 'GetTenantById', {
             runtime: Runtime.NODEJS_10_X,
             handler: 'index.handler',
@@ -262,6 +264,58 @@ export class MultiTenantStack extends Stack {
             },
             role: tenantAdminSystemRole,
         });
+
+        const dynamoDbEsStreamerServiceRole = new Role(
+            this,
+            'DynamoDbEsStreamerRole',
+            {
+                assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+            }
+        );
+
+        const dynamoDbEsStreamerPolicy = new Policy(
+            this,
+            'DynamoDbEsStreamerPolicy',
+            {
+                statements: [
+                    new PolicyStatement({
+                        effect: Effect.ALLOW,
+                        actions: [
+                            'es:ESHttpPost',
+                            'es:ESHttpPut',
+                            'dynamodb:DescribeStream',
+                            'dynamodb:GetRecords',
+                            'dynamodb:GetShardIterator',
+                            'dynamodb:ListStreams',
+                            'logs:CreateLogGroup',
+                            'logs:CreateLogStream',
+                            'logs:PutLogEvents',
+                        ],
+                        resources: ['*'],
+                    }),
+                ],
+            }
+        );
+        if (elasticsearchDomain.domainName) {
+            const addTenantToESIndex = new Function(
+                this,
+                'AddTenantToESIndex',
+                {
+                    runtime: Runtime.NODEJS_10_X,
+                    handler: 'index.handler',
+                    code: Code.asset(
+                        path.join(
+                            __dirname,
+                            './lambda/functions/addTenantToESIndex'
+                        )
+                    ),
+                    environment: {
+                        tableName: tenantTable.tableName,
+                        elasticsearchDomain: elasticsearchDomain.domainName,
+                    },
+                }
+            );
+        }
 
         // ****** COGNITO LAMBDA FUNCTIONS
 
