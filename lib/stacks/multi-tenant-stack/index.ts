@@ -1,5 +1,3 @@
-import cdk = require('@aws-cdk/core');
-
 import {
     UserPool,
     CfnUserPoolGroup,
@@ -28,49 +26,31 @@ import {
     ManagedPolicy,
     PolicyStatement,
     Effect,
+    Policy,
 } from '@aws-cdk/aws-iam';
-import { RestApi } from '@aws-cdk/aws-apigateway';
-import { StateMachine } from '@aws-cdk/aws-stepfunctions';
+
+import { Task, StateMachine, State } from '@aws-cdk/aws-stepfunctions';
+import { InvokeFunction } from '@aws-cdk/aws-stepfunctions-tasks';
+import {
+    RestApi,
+    CfnAuthorizer,
+    AwsIntegration,
+    PassthroughBehavior,
+    AuthorizationType,
+} from '@aws-cdk/aws-apigateway';
 import { CfnDomain } from '@aws-cdk/aws-elasticsearch';
-import { PhysicalName } from '@aws-cdk/core';
+import {
+    PhysicalName,
+    Stack,
+    Construct,
+    StackProps,
+    Duration,
+} from '@aws-cdk/core';
 import { EbsDeviceVolumeType } from '@aws-cdk/aws-autoscaling';
 import path = require('path');
 
-export class MultiTenantStack extends cdk.Stack {
-    /*
-     *****************************************************
-     * Define stack resources
-     *****************************************************
-     */
-    // // Cognito
-    // private cognitoUserPool: UserPool | undefined;
-    // private identityPool: CfnIdentityPool | undefined;
-    // private cognitoSystemAdminsGroup: CfnUserPoolGroup | undefined;
-    // private cognitoTenantAdminsGroup: CfnUserPoolGroup | undefined;
-    // private cognitoUsersGroup: CfnUserPoolGroup | undefined;
-    // // VPC
-    // private defaultVpc: Vpc | undefined;
-    // // DynamoDb
-    // private tenantTable: Table | undefined;
-    // // Lambda
-    // private commonModulesLambdaLayer: LayerVersion | undefined;
-    // private getTenantRecord: Function | undefined;
-    // private createTenant: Function | undefined;
-    // private addUserToTenantAcl: Function | undefined;
-    // private cognitoAdminAddUserToGroup: Function | undefined;
-    // private cognitoAdminCreateUser: Function | undefined;
-    // private cognitoCheckIfUserExists: Function | undefined;
-    // // API Gateway
-    // private systemAdminApi: RestApi | undefined;
-    // private tenantAdminApi: RestApi | undefined;
-    // // Step Function
-    // private tenantOnboardingStateMachine: StateMachine;
-    // // Elasticsearch
-    // private tenantDomain: CfnDomain | undefined;
-    // // IAM Roles
-    // private systemAdminServiceRole: Role | undefined;
-
-    constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
+export class MultiTenantStack extends Stack {
+    constructor(scope: Construct, id: string, props?: StackProps) {
         super(scope, id, props);
 
         /* ##########################################################
@@ -108,6 +88,11 @@ export class MultiTenantStack extends cdk.Stack {
         const sysAdminsGroup = new CfnUserPoolGroup(this, 'SysAdmins', {
             userPoolId: userPool.userPoolId,
             groupName: 'SysAdmins',
+        });
+
+        const tenantAdminsGroup = new CfnUserPoolGroup(this, 'TenantAdmins', {
+            userPoolId: userPool.userPoolId,
+            groupName: 'TenantAdmins',
         });
 
         // Allow Cognito to publish SMS messages
@@ -243,7 +228,17 @@ export class MultiTenantStack extends cdk.Stack {
 
         tenantTable.grantReadWriteData(tenantAdminSystemRole);
 
-        const createTenantLambda = new Function(this, 'CreateTenant', {
+        const tenantReaderSystemRole = new Role(
+            this,
+            'TenantSystemDynamoDbReader',
+            {
+                assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+            }
+        );
+
+        tenantTable.grantReadData(tenantReaderSystemRole);
+
+        const createTenant = new Function(this, 'CreateTenant', {
             runtime: Runtime.NODEJS_10_X,
             handler: 'index.handler',
             code: Code.asset(
@@ -256,21 +251,286 @@ export class MultiTenantStack extends cdk.Stack {
             layers: [commonNpmModulesLayer],
         });
 
-        const cognitoAdminAddUserToGroupLambda = new Function(
+        const getTenantById = new Function(this, 'GetTenantById', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/getTenantById')
+            ),
+            environment: {
+                tableName: tenantTable.tableName,
+            },
+            role: tenantAdminSystemRole,
+        });
+
+        // ****** COGNITO LAMBDA FUNCTIONS
+
+        const cognitoAdminServiceRole = new Role(
             this,
-            'CognitoAddUserToGroup',
+            'CognitoAdminServiceRole',
+            {
+                assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+            }
+        );
+
+        const cognitoAdminPolicy = new ManagedPolicy(
+            this,
+            'CognitoAdminPolicy',
+            {
+                statements: [
+                    new PolicyStatement({
+                        effect: Effect.ALLOW,
+                        resources: [userPool.userPoolArn],
+                        actions: [
+                            'cognito-idp:AdminCreateUser',
+                            'cognito-idp:AdminDeleteUser',
+                            'cognito-idp:AdminGetUser',
+                            'cognito-idp:AdminAddUserToGroup',
+                        ],
+                        //TODO: Consider adding a condition to allow only users in a 'SysAdmins' group access
+                    }),
+                ],
+            }
+        );
+
+        cognitoAdminPolicy.attachToRole(cognitoAdminServiceRole);
+
+        const addUserToGroup = new Function(this, 'CognitoAddUserToGroup', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoAddUserToGroup')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
+        });
+
+        const checkIfUserExists = new Function(
+            this,
+            'CognitoCheckIfUserExists',
             {
                 runtime: Runtime.NODEJS_10_X,
                 handler: 'index.handler',
                 code: Code.asset(
-                    path.join(__dirname, './lambda/functions/createTenant')
+                    path.join(
+                        __dirname,
+                        './lambda/functions/cognitoCheckIfUserExists'
+                    )
                 ),
                 environment: {
-                    tableName: tenantTable.tableName,
+                    cognitoUserPoolId: userPool.userPoolId,
                 },
-                role: tenantAdminSystemRole,
-                layers: [commonNpmModulesLayer],
+                role: cognitoAdminServiceRole,
+            }
+        );
+
+        const cognitoCreateUser = new Function(this, 'CognitoCreateUser', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoCreateUser')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
+        });
+
+        const cognitoDeleteUser = new Function(this, 'CognitoDeleteUser', {
+            runtime: Runtime.NODEJS_10_X,
+            handler: 'index.handler',
+            code: Code.asset(
+                path.join(__dirname, './lambda/functions/cognitoDeleteUser')
+            ),
+            environment: {
+                cognitoUserPoolId: userPool.userPoolId,
+            },
+            role: cognitoAdminServiceRole,
+        });
+
+        /* ##########################################################
+         * ######### STEP FUNCTIONS
+         * ##########################################################
+         */
+
+        // Tasks
+
+        const createTenantStep = new Task(this, 'CreateTenantStep', {
+            task: new InvokeFunction(createTenant),
+            resultPath: '$.createTenantResult',
+        });
+
+        const createTenantAdminStep = new Task(this, 'CreateTenantAdminStep', {
+            task: new InvokeFunction(cognitoCreateUser),
+            inputPath: '$.adminDetails', // <-- Pick adminDetails which should be part of the initial input
+            resultPath: '$.result.createAdminUserResult', // Output the result of the createUser Lambda (Cognito user-info)
+            outputPath: '$.result', // <-- Combine the results from this and previous step(create tenant)
+        });
+
+        const addUserToGroupStep = new Task(this, 'AddUserToCognitoGroupStep', {
+            task: new InvokeFunction(addUserToGroup),
+        });
+
+        const tenantOnboaringDefinition = createTenantStep
+            .next(createTenantAdminStep)
+            .next(addUserToGroupStep);
+
+        const stateMachine = new StateMachine(
+            this,
+            'TenantOnboardingStateMachine',
+            {
+                definition: tenantOnboaringDefinition,
+                timeout: Duration.minutes(1),
+            }
+        );
+
+        /* ##########################################################
+         * ######### API GATEWAY
+         * ##########################################################
+         */
+
+        // Role for step functions state machine to be executed via API Gateway
+        const apiGatewayStepFunctionsRole = new Role(
+            this,
+            'TenantOnboardingStateMachineRole',
+            {
+                assumedBy: new ServicePrincipal('apigateway.amazonaws.com'),
+            }
+        );
+
+        const tenantOnboardingStateMachinePolicy = new Policy(
+            this,
+            'TenantOnboardingStateMachinePolicy',
+            {
+                statements: [
+                    new PolicyStatement({
+                        effect: Effect.ALLOW,
+                        resources: [stateMachine.stateMachineArn],
+                        actions: ['states:StartExecution'],
+                    }),
+                ],
+            }
+        );
+
+        tenantOnboardingStateMachinePolicy.attachToRole(
+            apiGatewayStepFunctionsRole
+        );
+
+        // **** SYS ADMIN REST API ************
+        const restApiName = 'system-admin-api';
+
+        const sysAdminApi = new RestApi(this, restApiName, {
+            restApiName,
+        });
+
+        const cognitoAuthorizer = new CfnAuthorizer(
+            this,
+            'cognito-authorizer',
+            {
+                name: 'Cognito_Authorizer',
+                restApiId: sysAdminApi.restApiId,
+                type: 'COGNITO_USER_POOLS',
+                identitySource: 'method.request.header.Authorization',
+                providerArns: [userPool.userPoolArn],
+            }
+        );
+
+        // *** Method Responses / Integration responses / mapping templates
+
+        /** Default method responses for JSON content */
+        const defaultJsonContentMethodResponses = [
+            {
+                statusCode: '200',
+                responseModels: { 'application/json': 'Empty' },
+            },
+            {
+                statusCode: '400',
+            },
+            {
+                statusCode: '500',
+            },
+        ];
+
+        /** Default integrationResponses for JSON content */
+        const defaultJsonIntegrationResponses = [
+            {
+                statusCode: '200',
+            },
+            {
+                statusCode: '400',
+                selectionPattern: `4\d{2}`,
+            },
+            {
+                statusCode: '500',
+                selectionPattern: `5\d{2}`,
+            },
+        ];
+
+        /**
+         * Create a request template for API Gateway -> State Machine integration escaping input JSON,
+         * and preprending the State Machine ARN this making this hidden for the caller of the API endpoint
+         */
+        const stateMachineRequestTemplate = {
+            'application/json': JSON.stringify({
+                input: "$util.escapeJavaScript($input.json('$'))",
+                stateMachineArn: `${stateMachine.stateMachineArn}`,
+            }),
+        };
+
+        /********************************************************************
+         * {root}/tenant
+         ********************************************************************/
+
+        const tenantApiResource = sysAdminApi.root.addResource('tenants');
+
+        tenantApiResource.addMethod(
+            'POST',
+            new AwsIntegration({
+                service: 'states',
+                action: 'StartExecution',
+                options: {
+                    passthroughBehavior: PassthroughBehavior.NEVER,
+                    requestTemplates: {
+                        'application/json': JSON.stringify({
+                            input: "$util.escapeJavaScript($input.json('$'))",
+                            stateMachineArn: `${stateMachine.stateMachineArn}`,
+                        }),
+                    },
+                    credentialsRole: apiGatewayStepFunctionsRole,
+                    // integrationResponses: defaultJsonIntegrationResponses,
+                },
+            }),
+            {
+                // methodResponses: [
+                //     {
+                //         statusCode: '200',
+                //         responseModels: createDefaultJsonContentMethodResponses(),
+                //     },
+                // ],
+                authorizationType: AuthorizationType.COGNITO,
+                authorizer: {
+                    authorizerId: cognitoAuthorizer.ref,
+                },
             }
         );
     }
 }
+
+const createDefaultJsonContentMethodResponses = (): any[] => {
+    const methodResponses = [
+        {
+            statusCode: '200',
+            responseModels: { 'application/json': 'Empty' },
+        },
+        {
+            statusCode: '400',
+        },
+        {
+            statusCode: '500',
+        },
+    ];
+
+    return methodResponses;
+};
