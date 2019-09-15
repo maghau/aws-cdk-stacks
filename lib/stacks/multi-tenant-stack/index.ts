@@ -222,8 +222,7 @@ export class MultiTenantStack extends cdk.Stack {
             './lambda/layers/common-npm-modules/'
         );
 
-        // console.log('DIRNAME: ', dirName);
-
+        /****** COMMON MODULES LAYER (meaning that commonly shared / needed npm modules goes into this layer) */
         let commonNpmModulesLayer = new LayerVersion(
             this,
             'common-npm-modules',
@@ -233,7 +232,7 @@ export class MultiTenantStack extends cdk.Stack {
             }
         );
 
-        // Tenant System Admin Role
+        // Tenant System Service Admin Role
         const tenantAdminSystemRole = new Role(
             this,
             'TenantSystemDynamoDbReadWriter',
@@ -254,7 +253,24 @@ export class MultiTenantStack extends cdk.Stack {
                 tableName: tenantTable.tableName,
             },
             role: tenantAdminSystemRole,
-            // layers: [commonNpmModulesLayer],
+            layers: [commonNpmModulesLayer],
         });
+
+        const cognitoAdminAddUserToGroupLambda = new Function(
+            this,
+            'CognitoAddUserToGroup',
+            {
+                runtime: Runtime.NODEJS_10_X,
+                handler: 'index.handler',
+                code: Code.asset(
+                    path.join(__dirname, './lambda/functions/createTenant')
+                ),
+                environment: {
+                    tableName: tenantTable.tableName,
+                },
+                role: tenantAdminSystemRole,
+                layers: [commonNpmModulesLayer],
+            }
+        );
     }
 }
