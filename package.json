@@ -28,6 +28,7 @@
         "@aws-cdk/aws-elasticsearch": "^1.8.0",
         "@aws-cdk/aws-iam": "^1.8.0",
         "@aws-cdk/aws-lambda": "^1.8.0",
+        "@aws-cdk/aws-lambda-event-sources": "^1.8.0",
         "@aws-cdk/aws-stepfunctions": "^1.8.0",
         "@aws-cdk/aws-stepfunctions-tasks": "^1.8.0",
         "@aws-cdk/core": "^1.8.0",

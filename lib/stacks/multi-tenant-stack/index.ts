@@ -12,6 +12,8 @@ import {
     Runtime,
     Code,
     AssetCode,
+    EventSourceMapping,
+    StartingPosition,
 } from '@aws-cdk/aws-lambda';
 import { Vpc, SubnetType, SecurityGroup } from '@aws-cdk/aws-ec2';
 import {
@@ -48,6 +50,8 @@ import {
 } from '@aws-cdk/core';
 import { EbsDeviceVolumeType } from '@aws-cdk/aws-autoscaling';
 import path = require('path');
+
+import { DynamoEventSource } from '@aws-cdk/aws-lambda-event-sources';
 
 export class MultiTenantStack extends Stack {
     constructor(scope: Construct, id: string, props?: StackProps) {
@@ -313,7 +317,15 @@ export class MultiTenantStack extends Stack {
                         tableName: tenantTable.tableName,
                         elasticsearchDomain: elasticsearchDomain.domainName,
                     },
+                    role: dynamoDbEsStreamerServiceRole,
                 }
+            );
+
+            addTenantToESIndex.addEventSource(
+                new DynamoEventSource(tenantTable, {
+                    batchSize: 2,
+                    startingPosition: StartingPosition.LATEST,
+                })
             );
         }
 
