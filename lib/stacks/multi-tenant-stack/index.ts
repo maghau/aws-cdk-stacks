@@ -62,6 +62,7 @@ export class MultiTenantStack extends Stack {
          * ##########################################################
          */
 
+        const elasticsearchSubnetName = 'elasticsearch'; // <--- set name as variable to later refer to it from Lambda function config params
         const vpc = new Vpc(this, 'saas-demo-vpc', {
             cidr: '10.0.0.0/16',
             maxAzs: 2,
@@ -73,7 +74,7 @@ export class MultiTenantStack extends Stack {
                 },
                 {
                     cidrMask: 28,
-                    name: 'elasticache',
+                    name: elasticsearchSubnetName,
                     subnetType: SubnetType.ISOLATED,
                 },
             ],
@@ -166,9 +167,10 @@ export class MultiTenantStack extends Stack {
                 instanceType: 't2.small.elasticsearch',
                 instanceCount: 1,
             },
-            // encryptionAtRestOptions: { //< -- Encryption at rest is not supported for t2.small instances
-            //     enabled: true,
-            // },
+            encryptionAtRestOptions: {
+                //< -- Encryption at rest is not supported for t2.small instances
+                enabled: false,
+            },
             ebsOptions: {
                 ebsEnabled: true,
                 volumeType: EbsDeviceVolumeType.GP2,
@@ -294,6 +296,9 @@ export class MultiTenantStack extends Stack {
                             'logs:CreateLogGroup',
                             'logs:CreateLogStream',
                             'logs:PutLogEvents',
+                            'ec2:DescribeSecurityGroups',
+                            'ec2:DescribeSubnets',
+                            'ec2:DescribeVpcs',
                             'ec2:CreateNetworkInterface',
                             'ec2:DescribeNetworkInterfaces',
                             'ec2:DeleteNetworkInterface',
@@ -306,11 +311,6 @@ export class MultiTenantStack extends Stack {
 
         dynamoDbEsStreamerPolicy.attachToRole(dynamoDbEsStreamerServiceRole);
         // Make sure the service role for Lambda has access to VPC
-        dynamoDbEsStreamerServiceRole.addManagedPolicy(
-            ManagedPolicy.fromAwsManagedPolicyName(
-                'AWSLambdaVPCAccessExecutionRole'
-            )
-        );
 
         if (elasticsearchDomain.domainName) {
             const addTenantToESIndex = new Function(
@@ -330,6 +330,10 @@ export class MultiTenantStack extends Stack {
                         elasticsearchDomain: elasticsearchDomain.domainName,
                     },
                     role: dynamoDbEsStreamerServiceRole,
+                    vpc: vpc,
+                    vpcSubnets: {
+                        subnetName: elasticsearchSubnetName,
+                    },
                 }
             );
 
