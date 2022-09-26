@@ -11,7 +11,7 @@
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^2.2.0",
-        "aws-cdk": "^1.7.0",
+        "aws-cdk": "^1.174.0",
         "eslint": "^6.3.0",
         "eslint-config-prettier": "^6.3.0",
         "eslint-plugin-prettier": "^3.1.0",
